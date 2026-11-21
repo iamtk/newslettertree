@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 import mongoose from "mongoose";
 import { anonymous, as, catchNotFound, catchRedirect, form, platformEmails, signIn, startTestApp } from "./helpers/app.mjs";
+import { domainsWithoutMail } from "./stubs/mail-domains.mjs";
 
 let app;
 let auth;
@@ -114,16 +115,27 @@ test("without a Resend key the code only shows in the console, and only in devel
 	try {
 		delete process.env.RESEND_API_KEY;
 		process.env.NODE_ENV = "development";
+		domainsWithoutMail.add("example.com");
 		const user = { email: "dev@example.com", jar: new Map(), ip: "198.51.100.202" };
 		assert.deepEqual(await as(user, () => actions.sendSigninCode(null, form({ email: user.email }))), { email: user.email });
 		assert.ok(logged.some((line) => /\[signin\] Code for dev@example\.com: \d{6}/.test(line)));
 
 		logged.length = 0;
+		process.env.RESEND_API_KEY = "re_test";
+		assert.deepEqual(await as(user, () => actions.sendSigninCode(null, form({ email: user.email }))), {
+			error: "This email's domain can't receive email", value: user.email,
+		});
+		delete process.env.RESEND_API_KEY;
 		process.env.NODE_ENV = "production";
+		assert.deepEqual(await as(user, () => actions.sendSigninCode(null, form({ email: user.email }))), {
+			error: "This email's domain can't receive email", value: user.email,
+		});
+		domainsWithoutMail.delete("example.com");
 		const result = await as(user, () => actions.sendSigninCode(null, form({ email: "prod@example.com" })));
 		assert.equal(result.error, "Couldn't send the code. Try again in a minute.");
 		assert.equal(logged.some((line) => line.includes("Code for")), false, "never logged in production");
 	} finally {
+		domainsWithoutMail.delete("example.com");
 		console.info = info;
 		process.env.RESEND_API_KEY = previous.key;
 		process.env.NODE_ENV = previous.env;

@@ -53,6 +53,27 @@ test("MailCheap Cloud needs both Stripe keys and RESEND_API_KEY; a self-hosted s
 	assert.deepEqual(getConfigProblems({ ...STRONG, MAILCHEAP_CLOUD: "yes" }), [], "only exactly true is the cloud");
 });
 
+test("only development allows MailCheap Cloud without Resend, and Stripe stays required", () => {
+	for (const NODE_ENV of [undefined, "test", "production", "development"]) {
+		const env = { ...CLOUD, NODE_ENV, RESEND_API_KEY: "" };
+		assert.equal(getConfigProblems(env).length, NODE_ENV === "development" ? 0 : 1, String(NODE_ENV));
+		for (const name of ["STRIPE_SECRET_KEY", "STRIPE_WEBHOOK_SECRET"]) {
+			assert.ok(getConfigProblems({ ...env, [name]: "" }).some((problem) => problem.includes(name)), name);
+		}
+	}
+});
+
+test("development cloud starts without Resend and reports healthy; production refuses it", async () => {
+	const { GET } = await import("../app/api/health/route.js");
+	await withEnv({ ...CLOUD, NODE_ENV: "development", RESEND_API_KEY: "" }, async () => {
+		assert.doesNotThrow(register);
+		assert.equal((await GET()).status, 200);
+		process.env.NODE_ENV = "production";
+		assert.throws(register, /RESEND_API_KEY has to be set/);
+		assert.equal((await GET()).status, 503);
+	});
+});
+
 test("the cloud refuses to start without Stripe or Resend, and its health check fails with the reason", async () => {
 	const { GET } = await import("../app/api/health/route.js");
 	await withEnv(CLOUD, async () => {

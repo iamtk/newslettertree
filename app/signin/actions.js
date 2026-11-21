@@ -69,6 +69,8 @@ async function getAddressProblem(email) {
 	const domain = email.split("@")[1];
 	// No code to a throwaway inbox that can't sign up anyway; one that has an account from before still signs in.
 	if (classifyDomain(domain, await getDomainLists()) && !(await findUserByEmail(email))) return { error: SIGNUP_ERRORS.email_disposable };
+	// Terminal sign-in codes don't need a domain that receives mail.
+	if (process.env.NODE_ENV === "development" && !process.env.RESEND_API_KEY) return null;
 	if ((await findDomainsWithoutMail([domain])).size > 0) return { error: "This email's domain can't receive email", value: email };
 	return null;
 }
